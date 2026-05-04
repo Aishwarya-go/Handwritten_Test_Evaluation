@@ -104,7 +104,6 @@ def _run_pipeline(submission_id):
                         import cv2
                         import numpy as np
                         from PIL import Image
-                        from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 
                         img = cv2.imread(image_path)
                         if img is None and image_path.lower().endswith('.pdf'):
@@ -115,10 +114,11 @@ def _run_pipeline(submission_id):
                             img = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR) if pix.n == 3 else cv2.cvtColor(arr, cv2.COLOR_RGBA2BGR)
 
                         if img is not None:
+                            # Use ml_pipeline lazy loader to avoid reloading model per question
+                            from ml_pipeline import _load_trocr
+                            processor, model = _load_trocr()
                             rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                             pil = Image.fromarray(rgb)
-                            processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
-                            model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-handwritten")
                             pixel_values = processor(images=pil, return_tensors="pt").pixel_values
                             generated = model.generate(pixel_values, max_new_tokens=256)
                             student_answer = processor.batch_decode(generated, skip_special_tokens=True)[0].strip() or "No answer detected"

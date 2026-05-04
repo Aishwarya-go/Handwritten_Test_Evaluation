@@ -11,6 +11,12 @@ FRONTEND_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..",
                  "Handwritten_Test_Evaluation-Frontend")
 )
+# Fallback for Railway where frontend is in same repo
+if not os.path.exists(FRONTEND_DIR):
+    FRONTEND_DIR = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..",
+                     "Handwritten_Test_Evaluation-Frontend")
+    )
 
 def create_app():
     app = Flask(__name__, static_folder=os.path.join(FRONTEND_DIR, "static"), static_url_path="/static")

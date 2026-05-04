@@ -113,9 +113,19 @@ def upload_paper(test_id):
     if paper_type == "answer":
         try:
             import sys
-            sys.path.insert(0, os.path.abspath(os.path.join(BASE_DIR, '..')))
-            from ml_pipeline import _load_trocr, _ocr_crop
+            # Check project root first, then parent
+            for search_path in [
+                BASE_DIR,
+                os.path.abspath(os.path.join(BASE_DIR, '..'))
+            ]:
+                if os.path.exists(os.path.join(search_path, 'ml_pipeline.py')):
+                    sys.path.insert(0, search_path)
+                    break
+
+            from ml_pipeline import _load_trocr
             import cv2, numpy as np
+            from PIL import Image as PILImage
+
             if ext == ".pdf":
                 import fitz
                 doc = fitz.open(filepath)
@@ -128,15 +138,14 @@ def upload_paper(test_id):
             if img is not None:
                 questions = Question.query.filter_by(test_id=test_id).order_by(Question.question_number).all()
                 if questions:
-                    h, w = img.shape[:2]
+                    processor, model = _load_trocr()
+                    h = img.shape[0]
                     section_h = h // len(questions)
                     for i, q in enumerate(questions):
                         crop = img[i * section_h:(i + 1) * section_h, :]
                         try:
-                            processor, model = _load_trocr()
-                            from PIL import Image
                             rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
-                            pil = Image.fromarray(rgb)
+                            pil = PILImage.fromarray(rgb)
                             pixel_values = processor(images=pil, return_tensors="pt").pixel_values
                             generated = model.generate(pixel_values, max_new_tokens=256)
                             extracted = processor.batch_decode(generated, skip_special_tokens=True)[0].strip()
@@ -144,12 +153,62 @@ def upload_paper(test_id):
                                 rubric_data = json.loads(q.rubric_json)
                                 rubric = rubric_data.get("rubric", rubric_data) if isinstance(rubric_data, dict) else rubric_data
                                 q.model_answer = extracted
-                                q.rubric_json = json.dumps({"rubric": rubric if isinstance(rubric, list) else [str(rubric)], "bbox": rubric_data.get("bbox", {}) if isinstance(rubric_data, dict) else {}})
+                                q.rubric_json = json.dumps({
+                                    "rubric": rubric if isinstance(rubric, list) else [str(rubric)],
+                                    "bbox": rubric_data.get("bbox", {}) if isinstance(rubric_data, dict) else {}
+                                })
                         except Exception as e:
                             print(f"OCR failed for Q{q.question_number}: {e}")
                     db.session.commit()
         except Exception as e:
             print(f"Answer paper OCR failed: {e}")
+
+    # If question paper uploaded, extract question texts using OCR
+    if paper_type == "question":
+        try:
+            import sys
+            for search_path in [
+                BASE_DIR,
+                os.path.abspath(os.path.join(BASE_DIR, '..'))
+            ]:
+                if os.path.exists(os.path.join(search_path, 'ml_pipeline.py')):
+                    sys.path.insert(0, search_path)
+                    break
+
+            from ml_pipeline import _load_trocr
+            import cv2, numpy as np
+            from PIL import Image as PILImage
+
+            if ext == ".pdf":
+                import fitz
+                doc = fitz.open(filepath)
+                pix = doc[0].get_pixmap(dpi=150)
+                arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+                img = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR) if pix.n == 3 else cv2.cvtColor(arr, cv2.COLOR_RGBA2BGR)
+            else:
+                img = cv2.imread(filepath)
+
+            if img is not None:
+                questions = Question.query.filter_by(test_id=test_id).order_by(Question.question_number).all()
+                if questions:
+                    processor, model = _load_trocr()
+                    h = img.shape[0]
+                    section_h = h // len(questions)
+                    for i, q in enumerate(questions):
+                        crop = img[i * section_h:(i + 1) * section_h, :]
+                        try:
+                            rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+                            pil = PILImage.fromarray(rgb)
+                            pixel_values = processor(images=pil, return_tensors="pt").pixel_values
+                            generated = model.generate(pixel_values, max_new_tokens=256)
+                            extracted = processor.batch_decode(generated, skip_special_tokens=True)[0].strip()
+                            if extracted:
+                                q.question_text = extracted
+                        except Exception as e:
+                            print(f"Question OCR failed for Q{q.question_number}: {e}")
+                    db.session.commit()
+        except Exception as e:
+            print(f"Question paper OCR failed: {e}")
 
     log(current_user.id, f"Uploaded {paper_type} paper for test {test_id}")
     return jsonify({"message": f"{paper_type.capitalize()} paper uploaded", "path": filepath}), 200

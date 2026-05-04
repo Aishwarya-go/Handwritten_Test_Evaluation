@@ -268,6 +268,7 @@ def reset_user_password(user_id):
     return jsonify({"message": f"Password reset for {user.name}"}), 200
 
 
+@admin.route("/admin/tests", methods=["GET"])
 @login_required
 @admin_required
 def get_all_tests():

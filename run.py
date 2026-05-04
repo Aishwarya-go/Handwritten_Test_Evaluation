@@ -6,6 +6,7 @@ app = create_app()
 try:
     with app.app_context():
         db.create_all()
+        print("Tables created successfully!")
 except Exception as e:
     print(f"DB init warning: {e}")
 
